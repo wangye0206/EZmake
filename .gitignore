@@ -1,0 +1,11 @@
+# Ignore Everything
+*
+
+# Except
+!README.md
+!.gitignore
+
+# C/C++
+!*.c
+!*.cpp
+!*.h
