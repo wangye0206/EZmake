@@ -84,8 +84,10 @@ void target::Recompile(environment_variable ev)
 	/* set file need to be compile */
 	shellCommand += (path);
 
-	printf("\n%s\n", shellCommand.c_str());
-	system(shellCommand.c_str());
+	printf("%s\n", shellCommand.c_str());
+	if(system(shellCommand.c_str()) != 0 )
+		exit(EXIT_FAILURE);
+	
 	return;
 }
 
