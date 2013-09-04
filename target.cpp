@@ -152,7 +152,7 @@ string target::AnalyzeHash(FILE* thisFile)
 			
 			if( feof( thisFile ) != 0 )
 			{
-				lgFileOK = false;// error, need debug
+				lgFileOK = false;
 				return "\0";
 			}
 		}

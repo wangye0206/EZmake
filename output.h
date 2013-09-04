@@ -13,11 +13,9 @@ using namespace std;
 class output
 {
 public:
-	output(string programName, string programDir)
-		{
-			name = programName;
-			dir = programDir;
-			path = dir+name;
+	output(string programPath)
+		{	
+			path = programPath;
 			lgRelink = false;
 		}
 	void SetRelink(void);
@@ -27,9 +25,7 @@ public:
 	string GetPath(void);
 	
 private:
-	string name;
 	string path;
-	string dir;
 	bool lgRelink;
 };
 

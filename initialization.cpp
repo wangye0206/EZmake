@@ -14,7 +14,7 @@ job Initialization( environment_variable &ev, int argc, char** argv )
 
 	ev.programPath = "./myprogram";
 
-	ev.compiler = "clang++";
+	ev.compiler = "g++";
 
 	ev.flags = "";
 

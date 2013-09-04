@@ -17,10 +17,7 @@ struct environment_variable
 	vector<string> headerDirs;
 
 	/* output name */
-	string programName;
-
-	/* output Dir */
-	string programDir;
+	string programPath;
 
 	/* compiler */
 	string compiler;
@@ -29,7 +26,5 @@ struct environment_variable
 	string flags;
 	
 };
-
-extern void InitializeEV( environment_variable &ev );
 
 #endif
