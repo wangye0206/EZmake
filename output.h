@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <string>
 #include <vector>
 #include "environment.h"
@@ -16,7 +17,10 @@ public:
 	output(string programPath)
 		{	
 			path = programPath;
-			lgRelink = false;
+			if( access(path.c_str(), F_OK) == 0 ) 
+				lgRelink = false;
+			else
+				lgRelink = true;
 		}
 	void SetRelink(void);
 	void Relink(vector<target> targets, environment_variable ev);
