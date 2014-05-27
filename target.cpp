@@ -1,88 +1,86 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <unistd.h>
+#include <vector>
 #include <string>
+#include <queue>
+#include <set>
 #include "target.h"
-#include "environment.h"
 #include "services.h"
+#include "define.h"
 
 using namespace std;
 
-/* Public Function */
-
-int target::CheckTarget(environment_variable ev)
+Target::Target(string dir, string name)
 {
-	CheckDependence(ev);
-	if( !lgFileOK )
-		return 1;
-	if( lgRecompile )
+	targetName = dir + name;
+	unsigned suffixPosition = name.find_last_of(".");
+	objectName = string(name, 0, suffixPosition) + ".o";
+}
+
+Target::~Target()
+{};
+
+Target::Target(const Target& src)
+{
+	targetName = src.TargetName();
+	objectName = src.ObjectName();
+}
+
+Target& Target::operator= (const Target& src)
+{
+	targetName = src.TargetName();
+	objectName = src.ObjectName();
+	return *this;
+}
+
+bool Target::operator< (const Target& rhs) const
+{
+	string s2 = rhs.TargetName();
+	if(targetName.length() < s2.length())
 	{
-		Recompile(ev);
-		return 2;
+		return true;
 	}
-	return 0;
-}
-
-string target::GetTargetPath(void)
-{
-	return path;
-}
-
-string target::GetObjectPath(void)
-{
-	return objectPath;
-}
-
-/* Private Function */
-
-void target::CheckDependence(environment_variable ev)
-{
-	/* first check .o. if .o does not exist, set lgRecompile to true */
-	if( access(objectPath.c_str(), F_OK) == -1 )
+	else if(targetName.length() > s2.length())
 	{
-		lgRecompile = true;
+		return false;
 	}
 	else
 	{
-		FILE* objectFile = fopen(objectPath.c_str(), "r");
-		FILE* sourceFile = fopen(path.c_str(), "r");
-		/* if sourceFile can not be open, ask user to check this file */
-		if( sourceFile == NULL )
+		for(int i = 0; i < targetName.length(); i++)
 		{
-			lgFileOK = false;
-		}
-		else
-		{
-			/* second check source file (such as .cpp).
-			 * set lgRecompile to true if souce file newer than .o */
-			if( CompareNewer( path, objectPath ) )
-				lgRecompile = true;
+			if(targetName[i] == s2[i])
+			{
+				continue;
+			}
 			else
 			{
-				CheckHeader(sourceFile, objectFile, ev);
+				return int(targetName[i]) < int(s2[i]);
 			}
 		}
-		fclose( objectFile );
-		fclose( sourceFile );
 	}
-	return;
+	return false;
 }
 
-void target::Recompile(environment_variable ev)
+bool Target::operator== (const Target& src) const
+{
+	return (targetName == src.TargetName());
+}
+
+void Target::Compile(const environment_variable& ev) const
 {
 	string shellCommand;
 	/* set compiler */
 	shellCommand += (ev.compiler + " ");
 	/* set flag */
-	if( ev.flags.length() != 0 )
-		shellCommand += (ev.flags + " ");
+	shellCommand += (ev.flags + " ");
 	/* set include pathes */
 	for( int i = 1; i < ev.headerDirs.size(); i++ )
 		shellCommand += ("-I" + ev.headerDirs[i] + " ");
-	/* set object name */
+	/* output obj file */
 	shellCommand += ("-c ");
 	/* set file need to be compile */
-	shellCommand += (path);
+	shellCommand += (targetName);
 
 	printf("%s\n", shellCommand.c_str());
 	if(system(shellCommand.c_str()) != 0 )
@@ -91,7 +89,93 @@ void target::Recompile(environment_variable ev)
 	return;
 }
 
-void target::AnalyzeSlash(FILE* thisFile)
+string Target::ObjectName() const
+{
+	return objectName;
+}
+
+string Target::TargetName() const
+{
+	return targetName;
+}
+
+bool Target::AnalyzeTarget(const environment_variable& ev, vector<string>& neglect) const
+{
+	bool result = false;
+	set<string> analyzed;
+	queue<string> wait;
+	wait.push(targetName);
+	while(wait.size() > 0)
+	{
+		string thisFile = wait.front();
+		wait.pop();
+		AnalyzeFile(thisFile, wait, analyzed, result, neglect, ev);
+	}
+	return result;	
+}
+
+void Target::AnalyzeFile(string thisFile, queue<string>& wait, set<string>& analyzed, bool& result, vector<string>& neglect, const environment_variable& ev) const
+{
+	/* files need to compare with thisFile */
+	vector<string> needCompare;
+	needCompare.push_back(thisFile);
+	set<string>::iterator it = analyzed.find(thisFile);
+	if(it != analyzed.end())
+	{
+		return;
+	}
+	analyzed.insert(thisFile);
+	
+	FILE* filePtr = fopen(thisFile.c_str(), "r");
+	if(filePtr == NULL)
+	{
+		printf("Cannot open %s, please check the file access mode.\n", thisFile.c_str());
+		exit(EXIT_FAILURE);
+	}
+	while(feof(filePtr) == 0)
+	{
+		char currChar = fgetc(filePtr);
+		/* find out whether current char belongs to comment, if it is comment, move file indicator to the end of the comment */
+		if(currChar == '/')
+		{
+			AnalyzeSlash(filePtr);
+		}
+		/* find out whether current char is in a pair of quotes, if yes, move file indicator to the end */
+		else if(currChar == '\'' || currChar == '\"')
+		{
+			AnalyzeQuote(filePtr, currChar);
+		}
+		else if(currChar == '#')
+		{
+			string includeFileName = AnalyzeHash(filePtr, ev);
+			
+			if(includeFileName.length() > 0)
+			{
+				if(StringEndWith(includeFileName, ".c") || StringEndWith(includeFileName, ".cpp"))
+				{
+					neglect.push_back(includeFileName);
+				}
+				needCompare.push_back(includeFileName);
+				wait.push(includeFileName);
+			}
+		}
+		else
+		{
+			continue;
+		}
+	}
+	fclose(filePtr);
+	for(int i = 0; !result && i < needCompare.size(); i++)
+	{
+		if(CompareNewer(needCompare[i], objectName))
+		{
+			result = true;
+		}
+	}
+	return;
+}
+
+void Target::AnalyzeSlash(FILE* thisFile) const
 {
 	char thisChar = fgetc(thisFile);
 			
@@ -102,11 +186,11 @@ void target::AnalyzeSlash(FILE* thisFile)
 			continue;
 		}
 	}
-	else if( thisChar == '*' )
+	else if(thisChar == '*')
 	{
-		while( feof(thisFile) == 0 )
+		while(feof(thisFile) == 0)
 		{
-			thisChar = fgetc( thisFile );
+			thisChar = fgetc(thisFile);
 			if( thisChar == '*' )
 			{
 				thisChar = fgetc(thisFile);
@@ -123,113 +207,117 @@ void target::AnalyzeSlash(FILE* thisFile)
 	return;
 }
 
-void target::AnalyzeQuote(FILE* thisFile, char quoteType)
+void Target::AnalyzeQuote(FILE* thisFile, char quoteType) const
 {
 	char thisChar;
-	while( (thisChar = fgetc( thisFile )) != quoteType )
+	while(feof(thisFile) == 0 && (thisChar = fgetc(thisFile)) != quoteType)
 	{
-		if( thisChar == '\\' )
-			fgetc( thisFile );
-		if( feof(thisFile) != 0 )
+		if(thisChar == '\\' && feof(thisFile) == 0)
 		{
-			lgFileOK = false;
-			return;
+			fgetc(thisFile);
 		}
 	}
 	return;
 }
 
-string target::AnalyzeHash(FILE* thisFile)
+string Target::AnalyzeHash(FILE* thisFile, const environment_variable& ev) const
 {
 	char tempString[8];
 	char thisChar;
-	fgets( tempString, 8, thisFile );
-	if( strcmp( tempString, "include" ) == 0 )
+	fgets(tempString, 8, thisFile);
+	if(strcmp(tempString, "include") == 0)
 	{
-		while( true )
+		while(true)
 		{
-			thisChar = fgetc(thisFile);
-			if( thisChar == '<' || thisChar == '\"' )
-				break;
-			
-			if( feof( thisFile ) != 0 )
+			if(feof(thisFile) == 0)
 			{
-				lgFileOK = false;
-				return "\0";
+				thisChar = fgetc(thisFile);
+				/* do not check < > */
+				if(thisChar == '<')
+				{
+					return "";
+				}
+				else if(thisChar == '\"')
+				{
+					break;
+				}
+				else
+				{
+					continue;
+				}
+			}
+			else
+			{
+				return "";
 			}
 		}
-		/* do not check <> */
-		if( thisChar == '<' )
-		{
-			return "\0";
-		}
 		long int begin = ftell(thisFile);
-		while( true )
+		while(true)
 		{
-			thisChar = fgetc(thisFile);
-			if( thisChar == '>' || thisChar == '\"' )
-				break;
-			if( feof( thisFile ) != 0 )
+			if(feof(thisFile) == 0)
 			{
-				lgFileOK = false;
-				return "\0";
+				thisChar = fgetc(thisFile);
+				if(thisChar == '\"' )
+				{
+					break;
+				}
+				else if(thisChar == '\n')
+				{
+					return "";
+				}
+				else
+				{
+					continue;
+				}
+			}
+			else
+			{
+				return "";
 			}
 		}
 		long int end = ftell( thisFile );
 		/* fileNameLength includes the '\0' in the end */
 		int fileNameLength = end - begin;
-		char includeFileName[fileNameLength];
-		fseek( thisFile, begin, SEEK_SET );
-		fgets( includeFileName, fileNameLength, thisFile );
-		fseek( thisFile, end, SEEK_SET );
-		if( strlen(includeFileName) != (fileNameLength - 1) )
+		char* includeFileName = new char[fileNameLength];
+		fseek(thisFile, begin, SEEK_SET);
+		fgets(includeFileName, fileNameLength, thisFile);
+		fseek(thisFile, end, SEEK_SET);
+		string result = string(includeFileName);
+		delete[] includeFileName;
+		/*findout the full path of the result */
+		if(StringEndWith(result, ".h"))
 		{
-			lgFileOK = false;
-		}
-		else
-		{
-			if( StringEndWith(string(includeFileName), ".h") )
-				return includeFileName;
-		}
-	}
-	return "\0";
-}
-
-void target::CheckHeader(FILE* sourceFile, FILE* objectFile, environment_variable ev)
-{	
-	while( feof(sourceFile) == 0 && (!lgRecompile) && lgFileOK )
-	{
-		char currentChar = fgetc(sourceFile);
-		/* find out whether current char belongs to comment */
-		if( currentChar == '/' )
-		{
-			AnalyzeSlash(sourceFile);
-		}
-		/* find out whether current char is in a pair of quotes */
-		else if( currentChar == '\'' || currentChar == '\"')
-		{
-			AnalyzeQuote(sourceFile, currentChar);
-		}
-		else if( currentChar == '#' )
-		{
-			string headerFileName = AnalyzeHash(sourceFile);
-			if( headerFileName.length() != 0 )
+			for(int i = 0; i < ev.headerDirs.size(); i++)
 			{
-				for( int i = 0; i<ev.headerDirs.size(); i++)
+				string tmpName = ev.headerDirs[i]+result;
+				if(access(tmpName.c_str(), F_OK)==0)
 				{
-					string headerFilePath = ev.headerDirs[i] + headerFileName;
-					FILE* headerFile = fopen(headerFilePath.c_str(), "r");
-					if( headerFile != NULL )
-					{
-						if( CompareNewer(headerFilePath, objectPath) )
-							lgRecompile = true;
-					}
-					fclose(headerFile);
+					result = tmpName;
+					break;
+				}
+				if(i == ev.headerDirs.size()-1)
+				{
+					return "";
 				}
 			}
 		}
-		else
-			continue;
+		else if(StringEndWith(result, ".c") || StringEndWith(result, ".cpp"))
+		{
+			for(int i = 0; i < ev.sourceDirs.size(); i++)
+			{
+				string tmpName = ev.sourceDirs[i]+result;
+				if(access(tmpName.c_str(), F_OK)==0)
+				{
+					result = tmpName;
+					break;
+				}
+				if(i == ev.sourceDirs.size()-1)
+				{
+					return "";
+				}
+			}
+		}	
+		return result;
 	}
-	return;
+	return "";
 }

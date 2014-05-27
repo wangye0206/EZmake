@@ -38,9 +38,20 @@ bool StringEndWith(string string1, string string2)
 
 bool CompareNewer(string file1, string file2)
 {
-	struct stat attrib1, attrib2;
-	stat(file1.c_str(), &attrib1);
-	stat(file2.c_str(), &attrib2);
-	double delta = difftime(attrib1.st_mtime, attrib2.st_mtime);
-	return (delta > 0.);
+	if(access(file1.c_str(), F_OK) != 0)
+	{
+		return false;
+	}
+	else if(access(file2.c_str(), F_OK) != 0)
+	{
+		return true;
+	}
+	else
+	{	
+		struct stat attrib1, attrib2;
+		stat(file1.c_str(), &attrib1);
+		stat(file2.c_str(), &attrib2);
+		double delta = difftime(attrib1.st_mtime, attrib2.st_mtime);
+		return (delta > 0.);
+	}
 }
